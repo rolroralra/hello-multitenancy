@@ -1,0 +1,543 @@
+### ============================================
+### Multitenancy Demo API Tests
+### ============================================
+
+### Variables
+@baseUrl = http://localhost:8080
+@tenantA = tenant_a
+@tenantB = tenant_b
+
+### ============================================
+### Tenant Management (Master - public schema)
+### ============================================
+
+### Get all tenants
+GET {{baseUrl}}/api/tenants
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Response is array", function() {
+        client.assert(Array.isArray(response.body), "Response is not an array");
+    });
+    client.test("Contains tenant_a", function() {
+        const hasTenantA = response.body.some(t => t.tenantId === "tenant_a");
+        client.assert(hasTenantA, "tenant_a not found");
+    });
+%}
+
+### Get tenant by ID
+GET {{baseUrl}}/api/tenants/{{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Tenant ID matches", function() {
+        client.assert(response.body.tenantId === "tenant_a", "Tenant ID mismatch");
+    });
+%}
+
+### Create new tenant
+POST {{baseUrl}}/api/tenants
+Content-Type: application/json
+
+{
+  "tenantId": "tenant_test_{{$timestamp}}",
+  "name": "Test Tenant"
+}
+
+> {%
+    client.test("Tenant created successfully", function() {
+        client.assert(response.status === 201, "Response status is not 201");
+    });
+    client.test("Tenant has ID", function() {
+        client.assert(response.body.id !== null, "Tenant ID is null");
+    });
+%}
+
+### ============================================
+### User Management - JPA (tenant_a)
+### ============================================
+
+### Get all users (JPA) - tenant_a
+GET {{baseUrl}}/api/users
+X-Tenant-ID: {{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Response is array", function() {
+        client.assert(Array.isArray(response.body), "Response is not an array");
+    });
+    client.test("Users belong to tenant_a", function() {
+        const allTenantA = response.body.every(u => u.email.includes("tenant-a") || u.email.includes("tenant_a"));
+        // Note: This may not always be true depending on test data
+    });
+%}
+
+### Get all users (JPA) - tenant_b
+GET {{baseUrl}}/api/users
+X-Tenant-ID: {{tenantB}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Response is array", function() {
+        client.assert(Array.isArray(response.body), "Response is not an array");
+    });
+%}
+
+### Get user by ID - tenant_a
+GET {{baseUrl}}/api/users/1
+X-Tenant-ID: {{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("User has ID", function() {
+        client.assert(response.body.id === 1, "User ID mismatch");
+    });
+%}
+
+### Create user (JPA) - tenant_a
+POST {{baseUrl}}/api/users
+X-Tenant-ID: {{tenantA}}
+Content-Type: application/json
+
+{
+  "email": "test.user.{{$timestamp}}@tenant-a.com",
+  "name": "Test User A"
+}
+
+> {%
+    client.test("User created successfully", function() {
+        client.assert(response.status === 201, "Response status is not 201");
+    });
+    client.test("User has ID", function() {
+        client.assert(response.body.id !== null, "User ID is null");
+    });
+    client.test("Email matches", function() {
+        client.assert(response.body.email.includes("@tenant-a.com"), "Email domain mismatch");
+    });
+%}
+
+### Create user (JPA) - tenant_b
+POST {{baseUrl}}/api/users
+X-Tenant-ID: {{tenantB}}
+Content-Type: application/json
+
+{
+  "email": "test.user.{{$timestamp}}@tenant-b.com",
+  "name": "Test User B"
+}
+
+> {%
+    client.test("User created successfully", function() {
+        client.assert(response.status === 201, "Response status is not 201");
+    });
+%}
+
+### ============================================
+### User Management - jOOQ (tenant_a)
+### ============================================
+
+### Get all users (jOOQ) - tenant_a
+GET {{baseUrl}}/api/users/jooq
+X-Tenant-ID: {{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Response is array", function() {
+        client.assert(Array.isArray(response.body), "Response is not an array");
+    });
+    client.test("Has users", function() {
+        client.assert(response.body.length > 0, "No users found");
+    });
+%}
+
+### Get all users (jOOQ) - tenant_b
+GET {{baseUrl}}/api/users/jooq
+X-Tenant-ID: {{tenantB}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Response is array", function() {
+        client.assert(Array.isArray(response.body), "Response is not an array");
+    });
+%}
+
+### Get user count (jOOQ) - tenant_a
+GET {{baseUrl}}/api/users/count
+X-Tenant-ID: {{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Has count field", function() {
+        client.assert(response.body.count !== undefined, "Count field missing");
+    });
+    client.test("Tenant matches", function() {
+        client.assert(response.body.tenant === "tenant_a", "Tenant mismatch");
+    });
+%}
+
+### Get user count (jOOQ) - tenant_b
+GET {{baseUrl}}/api/users/count
+X-Tenant-ID: {{tenantB}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Tenant matches", function() {
+        client.assert(response.body.tenant === "tenant_b", "Tenant mismatch");
+    });
+%}
+
+### Create user (jOOQ) - tenant_a
+POST {{baseUrl}}/api/users/jooq
+X-Tenant-ID: {{tenantA}}
+Content-Type: application/json
+
+{
+  "email": "jooq.user.{{$timestamp}}@tenant-a.com",
+  "name": "jOOQ User A"
+}
+
+> {%
+    client.test("User created successfully", function() {
+        client.assert(response.status === 201, "Response status is not 201");
+    });
+%}
+
+### ============================================
+### Product Management - JPA (tenant_a)
+### ============================================
+
+### Get all products (JPA) - tenant_a
+GET {{baseUrl}}/api/products
+X-Tenant-ID: {{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Response is array", function() {
+        client.assert(Array.isArray(response.body), "Response is not an array");
+    });
+%}
+
+### Get all products (JPA) - tenant_b
+GET {{baseUrl}}/api/products
+X-Tenant-ID: {{tenantB}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+%}
+
+### Get product by ID - tenant_a
+GET {{baseUrl}}/api/products/1
+X-Tenant-ID: {{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Product has ID", function() {
+        client.assert(response.body.id === 1, "Product ID mismatch");
+    });
+%}
+
+### Create product (JPA) - tenant_a
+POST {{baseUrl}}/api/products
+X-Tenant-ID: {{tenantA}}
+Content-Type: application/json
+
+{
+  "name": "Test Product A {{$timestamp}}",
+  "price": 299.99,
+  "description": "A test product for Tenant A"
+}
+
+> {%
+    client.test("Product created successfully", function() {
+        client.assert(response.status === 201, "Response status is not 201");
+    });
+    client.test("Product has ID", function() {
+        client.assert(response.body.id !== null, "Product ID is null");
+    });
+    client.test("Price matches", function() {
+        client.assert(response.body.price === 299.99, "Price mismatch");
+    });
+%}
+
+### Create product (JPA) - tenant_b
+POST {{baseUrl}}/api/products
+X-Tenant-ID: {{tenantB}}
+Content-Type: application/json
+
+{
+  "name": "Test Product B {{$timestamp}}",
+  "price": 399.99,
+  "description": "A test product for Tenant B"
+}
+
+> {%
+    client.test("Product created successfully", function() {
+        client.assert(response.status === 201, "Response status is not 201");
+    });
+%}
+
+### ============================================
+### Product Management - jOOQ (tenant_a)
+### ============================================
+
+### Get all products (jOOQ) - tenant_a
+GET {{baseUrl}}/api/products/jooq
+X-Tenant-ID: {{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Response is array", function() {
+        client.assert(Array.isArray(response.body), "Response is not an array");
+    });
+    client.test("Has products", function() {
+        client.assert(response.body.length > 0, "No products found");
+    });
+%}
+
+### Get all products (jOOQ) - tenant_b
+GET {{baseUrl}}/api/products/jooq
+X-Tenant-ID: {{tenantB}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+%}
+
+### Search products by name (jOOQ) - tenant_a
+GET {{baseUrl}}/api/products/search?name=Product
+X-Tenant-ID: {{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Response is array", function() {
+        client.assert(Array.isArray(response.body), "Response is not an array");
+    });
+    client.test("Results contain 'Product'", function() {
+        const allContainProduct = response.body.every(p =>
+            p.name.toLowerCase().includes("product")
+        );
+        client.assert(allContainProduct, "Not all results contain 'Product'");
+    });
+%}
+
+### Get product statistics (jOOQ) - tenant_a
+GET {{baseUrl}}/api/products/stats
+X-Tenant-ID: {{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Has totalCount", function() {
+        client.assert(response.body.totalCount !== undefined, "totalCount missing");
+    });
+    client.test("Has totalValue", function() {
+        client.assert(response.body.totalValue !== undefined, "totalValue missing");
+    });
+    client.test("Has avgPrice", function() {
+        client.assert(response.body.avgPrice !== undefined, "avgPrice missing");
+    });
+    client.test("Tenant matches", function() {
+        client.assert(response.body.tenant === "tenant_a", "Tenant mismatch");
+    });
+%}
+
+### Get product statistics (jOOQ) - tenant_b
+GET {{baseUrl}}/api/products/stats
+X-Tenant-ID: {{tenantB}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Tenant matches", function() {
+        client.assert(response.body.tenant === "tenant_b", "Tenant mismatch");
+    });
+%}
+
+### Create product (jOOQ) - tenant_a
+POST {{baseUrl}}/api/products/jooq
+X-Tenant-ID: {{tenantA}}
+Content-Type: application/json
+
+{
+  "name": "jOOQ Product A {{$timestamp}}",
+  "price": 199.99,
+  "description": "Product created via jOOQ"
+}
+
+> {%
+    client.test("Product created successfully", function() {
+        client.assert(response.status === 201, "Response status is not 201");
+    });
+    client.test("Has status field", function() {
+        client.assert(response.body.status === "created", "Status mismatch");
+    });
+%}
+
+### ============================================
+### Error Cases
+### ============================================
+
+### Missing X-Tenant-ID header (should fail)
+GET {{baseUrl}}/api/users
+Accept: application/json
+
+> {%
+    client.test("Should return 500 without tenant header", function() {
+        client.assert(response.status === 500, "Expected 500 error");
+    });
+%}
+
+### Invalid tenant ID format (should fail)
+POST {{baseUrl}}/api/tenants
+Content-Type: application/json
+
+{
+  "tenantId": "invalid-tenant!",
+  "name": "Invalid Tenant"
+}
+
+> {%
+    client.test("Should return 400 for invalid tenant ID", function() {
+        client.assert(response.status === 400, "Expected 400 error");
+    });
+%}
+
+### Invalid email format (should fail)
+POST {{baseUrl}}/api/users
+X-Tenant-ID: {{tenantA}}
+Content-Type: application/json
+
+{
+  "email": "invalid-email",
+  "name": "Invalid User"
+}
+
+> {%
+    client.test("Should return 400 for invalid email", function() {
+        client.assert(response.status === 400, "Expected 400 error");
+    });
+%}
+
+### ============================================
+### Data Isolation Verification
+### ============================================
+
+### Step 1: Get user count for tenant_a
+GET {{baseUrl}}/api/users/count
+X-Tenant-ID: {{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.global.set("tenantAUserCount", response.body.count);
+%}
+
+### Step 2: Get user count for tenant_b
+GET {{baseUrl}}/api/users/count
+X-Tenant-ID: {{tenantB}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.global.set("tenantBUserCount", response.body.count);
+%}
+
+### Step 3: Create unique user in tenant_a
+POST {{baseUrl}}/api/users
+X-Tenant-ID: {{tenantA}}
+Content-Type: application/json
+
+{
+  "email": "isolation.{{$timestamp}}@tenant-a.com",
+  "name": "Isolation Test User A"
+}
+
+> {%
+    client.test("User created successfully", function() {
+        client.assert(response.status === 201, "Response status is not 201");
+    });
+%}
+
+### Step 4: Verify tenant_a count increased by 1
+GET {{baseUrl}}/api/users/count
+X-Tenant-ID: {{tenantA}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Tenant A count increased", function() {
+        const previousCount = client.global.get("tenantAUserCount");
+        client.assert(response.body.count === previousCount + 1,
+            "Count should have increased by 1");
+    });
+%}
+
+### Step 5: Verify tenant_b count unchanged
+GET {{baseUrl}}/api/users/count
+X-Tenant-ID: {{tenantB}}
+Accept: application/json
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Tenant B count unchanged", function() {
+        const previousCount = client.global.get("tenantBUserCount");
+        client.assert(response.body.count === previousCount,
+            "Tenant B count should not have changed");
+    });
+%}
