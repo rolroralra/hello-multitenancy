@@ -4,6 +4,7 @@ import com.example.multitenancy.config.jooq.JooqConfig.TenantAwareDSLContextProv
 import com.example.multitenancy.config.tenant.TenantContext;
 import com.example.multitenancy.domain.tenant.entity.Product;
 import com.example.multitenancy.domain.tenant.repository.ProductRepository;
+import com.example.multitenancy.jooq.generated.tables.records.ProductsRecord;
 import org.jooq.Record;
 import org.jooq.Result;
 import org.slf4j.Logger;
@@ -15,7 +16,12 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
-import static org.jooq.impl.DSL.*;
+import static com.example.multitenancy.jooq.generated.Tables.PRODUCTS;
+import static org.jooq.impl.DSL.avg;
+import static org.jooq.impl.DSL.count;
+import static org.jooq.impl.DSL.max;
+import static org.jooq.impl.DSL.min;
+import static org.jooq.impl.DSL.sum;
 
 /**
  * Service for managing products.
@@ -25,9 +31,6 @@ import static org.jooq.impl.DSL.*;
 public class ProductService {
 
     private static final Logger log = LoggerFactory.getLogger(ProductService.class);
-
-    // Schema name used during code generation (for RenderMapping)
-    private static final String SCHEMA = "public";
 
     private final ProductRepository productRepository;
     private final TenantAwareDSLContextProvider dslProvider;
@@ -57,21 +60,19 @@ public class ProductService {
         return productRepository.save(product);
     }
 
-    // ========== jOOQ Methods ==========
+    // ========== jOOQ Methods (Type-safe with generated code) ==========
 
     /**
      * Finds all products using jOOQ.
-     * The DSLContext automatically maps to the current tenant's schema.
-     * Note: Schema must be specified for RenderMapping to work.
+     * Uses generated table reference - RenderMapping transforms tenant_a -> current tenant.
      */
     @Transactional(readOnly = true)
-    public Result<Record> findAllProductsWithJooq() {
+    public Result<ProductsRecord> findAllProductsWithJooq() {
         log.debug("Finding all products with jOOQ for tenant: {}", TenantContext.getTenantId());
 
         return dslProvider.get()
-                .select()
-                .from(table(name(SCHEMA, "products")))
-                .orderBy(field("created_at").desc())
+                .selectFrom(PRODUCTS)
+                .orderBy(PRODUCTS.CREATED_AT.desc())
                 .fetch();
     }
 
@@ -79,11 +80,10 @@ public class ProductService {
      * Finds products by name pattern using jOOQ.
      */
     @Transactional(readOnly = true)
-    public Result<Record> findProductsByNameWithJooq(String namePattern) {
+    public Result<ProductsRecord> findProductsByNameWithJooq(String namePattern) {
         return dslProvider.get()
-                .select()
-                .from(table(name(SCHEMA, "products")))
-                .where(field("name").likeIgnoreCase("%" + namePattern + "%"))
+                .selectFrom(PRODUCTS)
+                .where(PRODUCTS.NAME.likeIgnoreCase("%" + namePattern + "%"))
                 .fetch();
     }
 
@@ -95,9 +95,8 @@ public class ProductService {
         log.debug("Creating product with jOOQ for tenant: {}", TenantContext.getTenantId());
 
         return dslProvider.get()
-                .insertInto(table(name(SCHEMA, "products")))
-                .columns(field("name"), field("price"), field("description"), field("created_at"))
-                .values(name, price, description, currentTimestamp())
+                .insertInto(PRODUCTS, PRODUCTS.NAME, PRODUCTS.PRICE, PRODUCTS.DESCRIPTION)
+                .values(name, price, description)
                 .execute();
     }
 
@@ -107,8 +106,8 @@ public class ProductService {
     @Transactional(readOnly = true)
     public BigDecimal calculateTotalValueWithJooq() {
         return dslProvider.get()
-                .select(sum(field("price", BigDecimal.class)))
-                .from(table(name(SCHEMA, "products")))
+                .select(sum(PRODUCTS.PRICE))
+                .from(PRODUCTS)
                 .fetchOne(0, BigDecimal.class);
     }
 
@@ -120,12 +119,12 @@ public class ProductService {
         return dslProvider.get()
                 .select(
                         count().as("total_count"),
-                        sum(field("price", BigDecimal.class)).as("total_value"),
-                        avg(field("price", BigDecimal.class)).as("avg_price"),
-                        min(field("price", BigDecimal.class)).as("min_price"),
-                        max(field("price", BigDecimal.class)).as("max_price")
+                        sum(PRODUCTS.PRICE).as("total_value"),
+                        avg(PRODUCTS.PRICE).as("avg_price"),
+                        min(PRODUCTS.PRICE).as("min_price"),
+                        max(PRODUCTS.PRICE).as("max_price")
                 )
-                .from(table(name(SCHEMA, "products")))
+                .from(PRODUCTS)
                 .fetchOne();
     }
 }

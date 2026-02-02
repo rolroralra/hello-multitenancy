@@ -58,7 +58,7 @@ jooq {
                     name = "org.jooq.codegen.JavaGenerator"
                     database.apply {
                         name = "org.jooq.meta.postgres.PostgresDatabase"
-                        inputSchema = "public"
+                        inputSchema = "tenant_a"  // Generate from tenant schema for users, products tables
                         excludes = "flyway_schema_history"
                     }
                     generate.apply {

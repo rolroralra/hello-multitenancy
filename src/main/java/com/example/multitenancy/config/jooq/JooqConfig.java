@@ -25,7 +25,11 @@ import java.util.concurrent.ConcurrentMap;
 @Configuration
 public class JooqConfig {
 
-    private static final String CODE_GEN_SCHEMA = "public";
+    /**
+     * Schema used for jOOQ code generation.
+     * RenderMapping will transform this schema to the current tenant's schema.
+     */
+    private static final String CODE_GEN_SCHEMA = "tenant_a";
 
     private final DataSource dataSource;
 
