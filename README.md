@@ -178,16 +178,16 @@ curl -X POST http://localhost:8080/api/tenants \
   -d '{"tenantId": "tenant_c", "name": "Tenant C Company"}'
 ```
 
-## jOOQ 코드 생성 (선택)
+## jOOQ 코드 생성
 
-이 프로젝트는 동적 DSL(`DSL.table(name("..."))`)을 사용하므로 코드 생성 없이도 동작합니다.
-
-타입 안전한 jOOQ 클래스가 필요한 경우:
+이 프로젝트는 jOOQ 코드 생성을 사용하여 타입 안전한 쿼리를 작성합니다.
 
 ```bash
-# PostgreSQL 실행 중일 때
+# PostgreSQL 실행 중일 때 (Docker Compose 자동 시작됨)
 ./gradlew generateJooq
 ```
+
+생성된 코드는 `build/generated-src/jooq/main/`에 위치하며, 빌드 시 자동으로 소스 경로에 포함됩니다.
 
 ## 문서
 
@@ -211,23 +211,24 @@ public final class TenantContext {
 
 ### jOOQ 사용법
 
-**중요**: RenderMapping이 작동하려면 스키마를 명시해야 합니다.
+코드 생성을 통해 타입 안전한 쿼리를 작성합니다:
 
 ```java
-private static final String SCHEMA = "public";  // RenderMapping 입력 스키마
+import static com.example.multitenancy.jooq.generated.Tables.USERS;
 
-// 스키마 명시 필수!
+// 타입 안전한 쿼리 - RenderMapping이 tenant_a -> 현재 테넌트로 변환
 dslProvider.get()
-    .select()
-    .from(table(name(SCHEMA, "users")))  // "public" -> "tenant_a" 로 매핑됨
+    .selectFrom(USERS)
+    .where(USERS.EMAIL.eq("user@example.com"))
     .fetch();
 ```
 
-**왜 Provider + Cache 방식인가?**
+**왜 Provider + Cache + 코드 생성 방식인가?**
+- 타입 안전: 컴파일 타임에 SQL 오류 검출
+- IDE 자동완성: 테이블, 컬럼명 자동 제안
 - Configuration 캐싱으로 성능 최적화
 - 웹 요청 외부(배치, 스케줄러)에서도 사용 가능
 - `getForTenant()`로 cross-tenant 접근 가능
-- 프록시 오버헤드 없음
 
 ### Hibernate ConnectionProvider
 

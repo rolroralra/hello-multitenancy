@@ -14,20 +14,24 @@ jOOQ(Java Object Oriented Querying)는 타입 안전한 SQL 쿼리를 Java로 �
 ### 기본 사용법
 
 ```java
+import static com.example.multitenancy.jooq.generated.Tables.USERS;
+
 // SELECT
-dsl.select(USERS.ID, USERS.NAME)
+dslProvider.get()
+   .select(USERS.ID, USERS.NAME)
    .from(USERS)
    .where(USERS.EMAIL.eq("user@example.com"))
    .fetch();
 
 // INSERT
-dsl.insertInto(USERS)
-   .columns(USERS.EMAIL, USERS.NAME)
+dslProvider.get()
+   .insertInto(USERS, USERS.EMAIL, USERS.NAME)
    .values("user@example.com", "User Name")
    .execute();
 
 // UPDATE
-dsl.update(USERS)
+dslProvider.get()
+   .update(USERS)
    .set(USERS.NAME, "New Name")
    .where(USERS.ID.eq(1L))
    .execute();
@@ -35,16 +39,15 @@ dsl.update(USERS)
 
 ## Multitenancy 구현
 
-이 프로젝트에서는 **Provider + Cache** 방식을 사용합니다.
+이 프로젝트에서는 **Provider + Cache + 코드 생성** 방식을 사용합니다.
 
 ### 왜 이 방식인가?
 
 | 방식 | 장점 | 단점 |
 |------|------|------|
-| **Provider + Cache (선택)** | Configuration 캐싱, 높은 성능, 넓은 사용 범위 | 약간 더 많은 코드 |
+| **Provider + Cache + 코드 생성 (선택)** | 타입 안전, 자동완성, Configuration 캐싱, 높은 성능 | 코드 생성 필요 |
+| 동적 DSL | 코드 생성 불필요 | 매번 스키마 명시 필요, 타입 안전성 없음 |
 | Request Scope | 단순한 주입 | 매 요청 객체 생성, 웹 외부 사용 불가 |
-| ConnectionProvider | Hibernate와 통합 용이 | 매 쿼리마다 SET 명령 실행 |
-| ExecuteListener | 유연한 커스터마이징 | 성능 오버헤드 |
 
 > 상세 비교는 [jOOQ DSLContext 전략 비교](jooq-dslcontext-strategies.md) 문서를 참조하세요.
 
@@ -56,7 +59,8 @@ dsl.update(USERS)
 @Configuration
 public class JooqConfig {
 
-    private static final String CODE_GEN_SCHEMA = "public";
+    // 코드 생성에 사용된 스키마 (tenant_a 기준으로 생성)
+    private static final String CODE_GEN_SCHEMA = "tenant_a";
 
     @Bean
     @Qualifier("baseConfiguration")
@@ -99,8 +103,8 @@ public class JooqConfig {
             Settings tenantSettings = new Settings()
                 .withRenderMapping(new RenderMapping()
                     .withSchemata(new MappedSchema()
-                        .withInput(CODE_GEN_SCHEMA)
-                        .withOutput(tenantId)));
+                        .withInput(CODE_GEN_SCHEMA)  // tenant_a
+                        .withOutput(tenantId)));     // -> current tenant
             return baseConfiguration.derive(tenantSettings);
         }
 
@@ -113,29 +117,30 @@ public class JooqConfig {
 
 ### 동작 방식
 
-1. **코드 생성**: `public` 스키마 기준으로 jOOQ 클래스 생성
+1. **코드 생성**: `tenant_a` 스키마 기준으로 jOOQ 클래스 생성 (`USERS`, `PRODUCTS`)
 2. **Configuration 캐싱**: 테넌트별 Configuration을 ConcurrentHashMap에 캐싱
-3. **RenderMapping**: SQL 렌더링 시 `public` -> `tenant_a` 등으로 스키마 변환
+3. **RenderMapping**: SQL 렌더링 시 `tenant_a` -> 현재 테넌트 스키마로 변환
 4. **derive()**: 기본 Configuration에서 테넌트별 설정만 파생 (불변, 스레드 안전)
 
 ### SQL 변환 예시
 
-**중요**: RenderMapping이 작동하려면 테이블 참조 시 스키마를 명시해야 합니다.
+생성된 코드를 사용하면 스키마가 자동으로 포함됩니다:
 
 ```java
-// 스키마 명시 (RenderMapping 작동)
-dslProvider.get().select().from(table(name("public", "users"))).fetch();
+import static com.example.multitenancy.jooq.generated.Tables.USERS;
 
-// 스키마 없음 (RenderMapping 작동 안 함 - 오류 발생)
-dslProvider.get().select().from(table(name("users"))).fetch();
+// 코드 생성 사용 (권장) - 스키마가 이미 내장됨
+dslProvider.get()
+    .selectFrom(USERS)
+    .fetch();
 ```
 
-생성 SQL (tenant_a):
+생성 SQL (tenant_a 접속 시):
 ```sql
 SELECT * FROM "tenant_a"."users"
 ```
 
-생성 SQL (tenant_b):
+생성 SQL (tenant_b 접속 시):
 ```sql
 SELECT * FROM "tenant_b"."users"
 ```
@@ -157,9 +162,10 @@ public DSLContext masterDslContext(@Qualifier("baseConfiguration") Configuration
 ### JPA와 jOOQ 함께 사용
 
 ```java
+import static com.example.multitenancy.jooq.generated.Tables.USERS;
+
 @Service
 public class UserService {
-    private static final String SCHEMA = "public";  // RenderMapping 입력 스키마
 
     private final UserRepository userRepository;  // JPA
     private final TenantAwareDSLContextProvider dslProvider;  // jOOQ
@@ -169,20 +175,26 @@ public class UserService {
         return userRepository.findAll();
     }
 
-    // jOOQ 사용 - 스키마 명시 필수!
-    public Result<Record> findAllUsersWithJooq() {
+    // jOOQ 사용 - 타입 안전한 쿼리
+    public Result<UsersRecord> findAllUsersWithJooq() {
         return dslProvider.get()
-                .select()
-                .from(table(name(SCHEMA, "users")))  // "public" -> "tenant_a" 로 매핑
+                .selectFrom(USERS)  // tenant_a -> current tenant 로 자동 매핑
                 .fetch();
     }
 
     // 특정 테넌트 데이터 조회 (cross-tenant)
-    public Result<Record> findUsersForTenant(String tenantId) {
+    public Result<UsersRecord> findUsersForTenant(String tenantId) {
         return dslProvider.getForTenant(tenantId)
-                .select()
-                .from(table(name(SCHEMA, "users")))
+                .selectFrom(USERS)
                 .fetch();
+    }
+
+    // 조건 검색
+    public UsersRecord findUserByEmail(String email) {
+        return dslProvider.get()
+                .selectFrom(USERS)
+                .where(USERS.EMAIL.eq(email))
+                .fetchOne();
     }
 }
 ```
@@ -211,7 +223,7 @@ jooq {
                 }
                 generator.apply {
                     database.apply {
-                        inputSchema = "public"  // 코드 생성은 public 기준
+                        inputSchema = "tenant_a"  // 테넌트 스키마 기준으로 생성
                     }
                     target.apply {
                         packageName = "com.example.multitenancy.jooq.generated"
@@ -230,13 +242,47 @@ jooq {
 ./gradlew generateJooq
 ```
 
+생성되는 파일:
+- `Tables.java` - 테이블 참조 (`USERS`, `PRODUCTS`)
+- `tables/Users.java` - Users 테이블 정의
+- `tables/Products.java` - Products 테이블 정의
+- `tables/records/UsersRecord.java` - Users 레코드 타입
+- `tables/records/ProductsRecord.java` - Products 레코드 타입
+
+## 코드 생성 vs 동적 DSL
+
+### 코드 생성 (권장)
+
+```java
+import static com.example.multitenancy.jooq.generated.Tables.USERS;
+
+// 타입 안전, 자동완성 지원
+dslProvider.get()
+    .selectFrom(USERS)
+    .where(USERS.EMAIL.eq("user@example.com"))
+    .fetch();
+```
+
+### 동적 DSL (코드 생성 없이)
+
+```java
+// 스키마를 매번 명시해야 함
+private static final String SCHEMA = "tenant_a";
+
+dslProvider.get()
+    .select()
+    .from(table(name(SCHEMA, "users")))
+    .where(field("email").eq("user@example.com"))
+    .fetch();
+```
+
 ## 주의사항
 
-1. **스키마 명시 필수**: `table(name("public", "users"))` 형태로 스키마를 반드시 명시해야 RenderMapping이 작동함
-2. **스키마 일관성**: 모든 테넌트 스키마의 테이블 구조가 동일해야 함
-3. **코드 생성 시점**: DB가 실행 중이어야 코드 생성 가능
-4. **트랜잭션**: JPA와 jOOQ가 동일한 트랜잭션 컨텍스트 공유
-5. **캐시 관리**: 테넌트 스키마 변경 시 `clearCache()` 또는 `evictTenant()` 호출
+1. **스키마 일관성**: 모든 테넌트 스키마의 테이블 구조가 동일해야 함
+2. **코드 생성 시점**: DB가 실행 중이어야 코드 생성 가능
+3. **트랜잭션**: JPA와 jOOQ가 동일한 트랜잭션 컨텍스트 공유
+4. **캐시 관리**: 테넌트 스키마 변경 시 `clearCache()` 또는 `evictTenant()` 호출
+5. **생성 코드 버전 관리**: `build/generated-src/`는 gitignore에 포함 (빌드 시 재생성)
 
 ## 관련 문서
 
